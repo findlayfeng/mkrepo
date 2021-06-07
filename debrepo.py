@@ -282,9 +282,17 @@ def split_pkg_path(pkg_path):
     return (dist, component, arch)
 
 
-def update_repo(storage, sign, tempdir, force=False):
-    dists = set()
+def process_release_and_indices(storage):
+    """Process the "Release" files from "dists/$DIST/Release"
+    and "Packages" files.
+
+    Keyword arguments:
+    storage - storage with repositories (Storage object).
+
+    Return a list of the PackageList objects, a list of distributions.
+    """
     package_lists = collections.defaultdict(PackageList)
+    dists = set()
 
     expr = r'^dists/([^/]*)/Release$'
     for file_path in storage.files('dists'):
@@ -298,7 +306,7 @@ def update_repo(storage, sign, tempdir, force=False):
 
         release = Release()
         release.parse_string(storage.read_file('dists/%s/Release' %
-            dist).decode('utf-8'))
+                                               dist).decode('utf-8'))
 
         components = release['Components'].split(' ')
         architectures = release['Architectures'].split(' ')
@@ -310,10 +318,36 @@ def update_repo(storage, sign, tempdir, force=False):
                 package_list = PackageList()
                 package_list.parse_string(
                     storage.read_file('dists/%s/%s/%s/Packages' %
-                        (dist, component, subdir)).decode('utf-8'))
+                                      (dist, component, subdir)).decode('utf-8'))
 
                 package_lists[(dist, component, arch)] = package_list
 
+    return package_lists, dists
+
+
+def calculate_package_checksums(package, file_path):
+    """Calculate the checksums of the file and add it to the Package object.
+
+    Keyword arguments:
+    package - processed package (Package object).
+    file - path to the file (string).
+    """
+    checksum_names = {'md5': 'MD5Sum', 'sha1': 'SHA1', 'sha256': 'SHA256'}
+    for checksum_type in ['md5', 'sha1', 'sha256']:
+        checksum = file_checksum(file_path, checksum_type)
+        checksum_name = checksum_names[checksum_type]
+        package[checksum_name] = checksum
+
+
+def get_packages_mtimes(package_lists):
+    """Read the mtimes of files from the packages lists.
+
+    Keyword arguments:
+    package_lists - list of the package lists (dictionary
+                    (dist, component, arch) to PackageList object).
+
+    Return the dictionary "filename to mtime".
+    """
     mtimes = {}
     for package_list in package_lists.values():
         for package in package_list.packages:
@@ -321,6 +355,22 @@ def update_repo(storage, sign, tempdir, force=False):
                 mtimes[package['Filename'].lstrip(
                     '/')] = float(package['FileTime'])
 
+    return mtimes
+
+
+def process_packages(storage, tempdir, package_lists, dists, force):
+    """Add information about changed files to the package.
+
+    Keyword arguments:
+    storage - storage with repositories (Storage object).
+    tempdir - path to the directory for storing temporary files (string).
+    package_lists - list of the package lists (dictionary
+                    (dist, component, arch) to PackageList object).
+    dists - list of distributions (set of strings).
+    force - if "True", then a malformed package wiil be skipped,
+            otherwise an exception will be raised (bool).
+    """
+    mtimes = get_packages_mtimes(package_lists)
     tmpdir = tempfile.mkdtemp('', 'tmp', tempdir)
 
     expr = r'^.*\.deb$'
@@ -368,11 +418,7 @@ def update_repo(storage, sign, tempdir, force=False):
         package['Size'] = os.path.getsize(local_file)
         package['FileTime'] = mtime
 
-        checksum_names = {'md5': 'MD5Sum', 'sha1': 'SHA1', 'sha256': 'SHA256'}
-        for checksum_type in ['md5', 'sha1', 'sha256']:
-            checksum = file_checksum(local_file, checksum_type)
-            checksum_name = checksum_names[checksum_type]
-            package[checksum_name] = checksum
+        calculate_package_checksums(package, local_file)
 
         packages = package_lists[components].packages
 
@@ -380,6 +426,19 @@ def update_repo(storage, sign, tempdir, force=False):
             packages.remove(package)
         packages.add(package)
 
+
+def update_packages_files(storage, package_lists):
+    """Update the "Packages" files.
+
+    Keyword arguments:
+    storage - storage with repositories (Storage object).
+    package_lists - list of the package lists (dictionary
+                    (dist, component, arch) to PackageList object).
+
+    Return dictionaries with checksums and sizes of the packages files, a
+    dictionary describes the "components" of distributions, and a dictionary
+    describes the supported architectures in distributions.
+    """
     checksums = collections.defaultdict(dict)
     sizes = collections.defaultdict(dict)
     components = collections.defaultdict(set)
@@ -419,6 +478,37 @@ def update_repo(storage, sign, tempdir, force=False):
 
                 checksums[dist][(checksum_type, path)] = h.hexdigest()
 
+    return checksums, sizes, components, architectures
+
+
+def sign_release_file(storage, release_str, dist):
+    """Sign the "Release" file.
+
+    Keyword arguments:
+    storage - storage with repositories (Storage object).
+    release_str - string containing the "Release" file (string).
+    dist - distribution name (string).
+    """
+    keyname = os.getenv('GPG_SIGN_KEY')
+    release_signature = gpg_sign_string(release_str, keyname)
+    release_inline = gpg_sign_string(release_str, keyname, True)
+    storage.write_file('dists/%s/Release.gpg' % dist, release_signature)
+    storage.write_file('dists/%s/InRelease' % dist, release_inline)
+
+
+def update_release_files(storage, sign, dists, checksums, sizes,
+                         components, architectures):
+    """Update the "Release" files.
+
+    Keyword arguments:
+    storage - storage with repositories (Storage object).
+    sign - whether to sign the "Release" files (bool).
+    dists - list of distributions (set of strings).
+    checksums - files checksums (dictionary).
+    sizes - files sizes (dictionary)
+    components - distributions components (dictionary).
+    architectures - architectures supported in distributions (dictionary).
+    """
     creation_date = rfc_2822_now_str()
 
     for dist in dists:
@@ -450,11 +540,25 @@ def update_repo(storage, sign, tempdir, force=False):
 
         release_str = release.dump_string()
         storage.write_file('dists/%s/Release' % dist,
-            release_str.encode('utf-8'))
+                           release_str.encode('utf-8'))
 
         if sign:
-            keyname = os.getenv('GPG_SIGN_KEY')
-            release_signature = gpg_sign_string(release_str, keyname)
-            release_inline = gpg_sign_string(release_str, keyname, True)
-            storage.write_file('dists/%s/Release.gpg' % dist, release_signature)
-            storage.write_file('dists/%s/InRelease' % dist, release_inline)
+            sign_release_file(storage, release_str, dist)
+
+
+def update_repo(storage, sign, tempdir, force=False):
+    """Update metainformation of the repository.
+
+    Keyword arguments:
+    storage - storage with repositories (Storage object).
+    sign - whether to sign the "Release" files (bool).
+    tempdir - path to the directory for storing temporary files (string).
+    force - if "True", then a malformed package wiil be skipped,
+            otherwise an exception will be raised (bool).
+    """
+    package_lists, dists = process_release_and_indices(storage)
+
+    process_packages(storage, tempdir, package_lists, dists, force)
+    checksums, sizes, components, architectures = update_packages_files(storage, package_lists)
+
+    update_release_files(storage, sign, dists, checksums, sizes, components, architectures)
