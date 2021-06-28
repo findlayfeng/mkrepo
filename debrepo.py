@@ -282,7 +282,7 @@ def split_pkg_path(pkg_path):
     return (dist, component, arch)
 
 
-def update_repo(storage, sign, tempdir):
+def update_repo(storage, sign, tempdir, force=False):
     dists = set()
     package_lists = collections.defaultdict(PackageList)
 
@@ -354,7 +354,16 @@ def update_repo(storage, sign, tempdir):
 
         package = Package()
         local_file = os.path.join(tmpdir, 'package.deb')
-        package.parse_deb(local_file)
+
+        try:
+            package.parse_deb(local_file)
+        except Exception as err:
+            print("Can't parse '%s':\n%s" % (file_path, str(err)))
+            if force == True:
+                continue
+            else:
+                raise err
+
         package['Filename'] = file_path
         package['Size'] = os.path.getsize(local_file)
         package['FileTime'] = mtime

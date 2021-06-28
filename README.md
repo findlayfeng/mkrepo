@@ -40,6 +40,7 @@ So you may skip them in command line invocation in case you have aws config.
             [--s3-endpoint S3_ENDPOINT]
             [--s3-region S3_REGION]
             [--sign]
+            [--force]
             path [path ...]
 ```
 
@@ -49,6 +50,9 @@ So you may skip them in command line invocation in case you have aws config.
 * `--s3-endpoint` - /(optional)/ specify S3 server URI
 * `--s3-region` - /(optional)/ specify S3 region (default is us-east-1)
 * `--sign` - /(optional) sign package metadata
+* `--force` - /(optional) when adding packages to the index, the malformed one
+  will be skipped. By default, a malformed package will cause the utility to
+  stop working
 * `path` - specify list of path to scan for repositories
 
 ## Environment variables reference

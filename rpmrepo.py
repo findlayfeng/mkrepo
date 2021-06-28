@@ -764,7 +764,7 @@ def generate_repomd(filelists_str, filelists_gz, primary_str, primary_gz, revisi
     return res
 
 
-def update_repo(storage, sign, tempdir):
+def update_repo(storage, sign, tempdir, force=False):
     filelists = {}
     primary = {}
     revision = "0"
@@ -811,7 +811,17 @@ def update_repo(storage, sign, tempdir):
         storage.download_file(file_path, os.path.join(tmpdir, 'package.rpm'))
 
         rpminfo = rpmfile.RpmInfo()
-        header = rpminfo.parse_file(os.path.join(tmpdir, 'package.rpm'))
+        header = None
+
+        try:
+            header = rpminfo.parse_file(os.path.join(tmpdir, 'package.rpm'))
+        except Exception as err:
+            print("Can't parse '%s':\n%s" % (file_path, str(err)))
+            if force == True:
+                continue
+            else:
+                raise err
+
         sha256 = file_checksum(os.path.join(tmpdir, 'package.rpm'), "sha256")
 
         statinfo = os.stat(os.path.join(tmpdir, 'package.rpm'))
