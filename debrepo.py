@@ -266,26 +266,24 @@ def split_pkg_path(pkg_path):
     component, and architecture (dist, component, arch).
     """
 
-    # We assume that DEB file format is the following, with optional <revision>, <dist> and <arch>
--    # <package>_<version>.<revision>-<dist>_<arch>.deb
-    expr = r'^(?P<package>[^_]+)_(?P<version>[0-9]+(\.[0-9]+){2,3}(\.g[a-f0-9]+)?\-[0-9])(\.(?P<revision>[^\-]+))?([\-]?(?P<dist>[^_]+))?_(?P<arch>[^\.]+)\.deb$'
+    # According to
+    # https://www.debian.org/doc/manuals/debian-faq/pkg-basics.en.html#pkgname
+    # the package name format is the following
+    # <foo>_<VersionNumber>-<DebianRevisionNumber>_<DebianArchitecture>.deb
+    # Since we are not using the "debian_revision" information, we do not need
+    # to separate it from the "upstream_version".
+    # https://www.debian.org/doc/debian-policy/ch-controlfields.html#version
+    expr = r'^(?P<package>[^_]+)_(?P<version>[0-9]([A-Za-z0-9.+~-])*)?_(?P<arch>[^\.]+)\.deb$'
     match_package = re.match(expr, pkg_path)
-
-    # The distribution information may be missing in the file name,
-    # but present in the path.
-    match_path = re.match('^pool/(?P<dist>[^/]+)/main', pkg_path)
-
     if not match_package:
         return None
 
-    component = 'main'
+    # Get the distribution information from the package path.
+    match_path = re.match('^pool/(?P<dist>[^/]+)/main', pkg_path)
 
-    dist = match_package.group('dist') or match_path.group('dist')
-    if dist is None:
-        dist = 'all'
-    arch = match_package.group('arch')
-    if arch is None:
-        arch = 'all'
+    component = 'main'
+    dist = match_path.group('dist') or 'all'
+    arch = match_package.group('arch') or 'all'
 
     return (dist, component, arch)
 
