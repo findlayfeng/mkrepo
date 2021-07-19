@@ -569,6 +569,24 @@ def get_mtimes(index_list):
     return mtimes
 
 
+def save_malformed_list(storage, dist, malformed_list):
+    """Save the list of malformed packages to the storage.
+
+    Keyword arguments:
+    storage - storage with repositories (Storage object).
+    dist - distribution version (string)
+    malformed_list - list of malformed packages (list of strings).
+    """
+    file = 'dists/%s/malformed_list.txt' % dist
+    if malformed_list:
+        print('Save malformed list...')
+        storage.write_file(file, '\n'.join(malformed_list).encode('utf-8'))
+    elif storage.exists(file):
+        # The list existed before, but is not up-to-date now.
+        print('Delete malformed list...')
+        storage.delete_file(file)
+
+
 def process_index_units(repo_info, tempdir, index_type, force):
     """Add information about changed files.
 
@@ -600,6 +618,11 @@ def process_index_units(repo_info, tempdir, index_type, force):
 
     mtimes = get_mtimes(index_list)
     tmpdir = tempfile.mkdtemp('', 'tmp', tempdir)
+
+    # Dictionary (dist to malformed packages list).
+    # Malformed list - list of packages that can't be added to the index
+    # (some problems encountered during processing).
+    malformed_lists = {}
 
     for file_path in repo_info.storage.files('pool'):
         file_path = file_path.lstrip('/')
@@ -637,6 +660,10 @@ def process_index_units(repo_info, tempdir, index_type, force):
             except Exception as err:
                 print("Can't parse '%s':\n%s" % (file_path, str(err)))
                 if force == True:
+                    if dist in malformed_lists:
+                        malformed_lists[dist].append(file_path)
+                    else:
+                        malformed_lists[dist] = [file_path]
                     continue
                 else:
                     raise err
@@ -655,6 +682,10 @@ def process_index_units(repo_info, tempdir, index_type, force):
         if unit in units:
             units.remove(unit)
         units.add(unit)
+
+    for dist in repo_info.dists:
+        malformed_list = malformed_lists.get(dist, [])
+        save_malformed_list(repo_info.storage, dist, malformed_list)
 
 
 def update_index_files(repo_info, index_type):

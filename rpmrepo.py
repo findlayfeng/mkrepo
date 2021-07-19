@@ -764,6 +764,23 @@ def generate_repomd(filelists_str, filelists_gz, primary_str, primary_gz, revisi
     return res
 
 
+def save_malformed_list(storage, malformed_list):
+    """Save the list of malformed packages to the storage.
+
+    Keyword arguments:
+    storage - storage with repositories (Storage object).
+    malformed_list - list of malformed packages (list of strings).
+    """
+    file = 'repodata/malformed_list.txt'
+    if malformed_list:
+        print('Save malformed list...')
+        storage.write_file(file, '\n'.join(malformed_list).encode('utf-8'))
+    elif storage.exists(file):
+        # The list existed before, but is not up-to-date now.
+        print('Delete malformed list...')
+        storage.delete_file(file)
+
+
 def update_repo(storage, sign, tempdir, force=False):
     filelists = {}
     primary = {}
@@ -801,6 +818,9 @@ def update_repo(storage, sign, tempdir, force=False):
         existing_files.add((file_path, mtime))
 
     files_to_add = existing_files - recorded_files
+    # List of packages that can't be added to the index
+    # (some problems encountered during processing).
+    malformed_list = []
 
     for file_to_add in files_to_add:
         file_path = file_to_add[0]
@@ -818,6 +838,7 @@ def update_repo(storage, sign, tempdir, force=False):
         except Exception as err:
             print("Can't parse '%s':\n%s" % (file_path, str(err)))
             if force == True:
+                malformed_list.append(file_path)
                 continue
             else:
                 raise err
@@ -836,6 +857,8 @@ def update_repo(storage, sign, tempdir, force=False):
 
         primary[nerv] = prim
         filelists[nerv] = flist
+
+    save_malformed_list(storage, malformed_list)
 
     revision = str(int(revision) + 1)
 
