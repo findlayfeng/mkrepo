@@ -718,7 +718,7 @@ def header_to_primary(
     return nerv, package
 
 
-def generate_repomd(filelists_str, filelists_gz, primary_str, primary_gz, revision):
+def generate_repomd(filelists_str, filelists_gz, primary_str, primary_gz, revision, storage):
     filelists_bytes = filelists_str.encode('utf-8')
     primary_bytes = primary_str.encode('utf-8')
     filelists_str_sha256 = bytes_checksum(filelists_bytes, 'sha256')
@@ -727,8 +727,8 @@ def generate_repomd(filelists_str, filelists_gz, primary_str, primary_gz, revisi
     filelists_gz_sha256 = bytes_checksum(filelists_gz, 'sha256')
     primary_gz_sha256 = bytes_checksum(primary_gz, 'sha256')
 
-    filelists_name = 'repodata/%s-filelists.xml.gz' % filelists_gz_sha256
-    primary_name = 'repodata/%s-primary.xml.gz' % primary_gz_sha256
+    filelists_name = 'repodata/filelists.xml.gz'
+    primary_name = 'repodata/primary.xml.gz'
 
     nowdt = datetime.datetime.now()
     nowtuple = nowdt.timetuple()
@@ -749,6 +749,23 @@ def generate_repomd(filelists_str, filelists_gz, primary_str, primary_gz, revisi
     res += '    <size>%s</size>\n' % len(filelists_gz)
     res += '    <open-size>%s</open-size>\n' % len(filelists_bytes)
     res += '  </data>\n'
+
+    other_name = 'repodata/other.xml.gz'
+    if storage.exists(other_name):
+        other_gz = storage.read_file(other_name)
+        other_gz_sha256 = bytes_checksum(other_gz, "sha256")
+
+        other = gzip.decompress(other_gz)
+        other_sha256 = bytes_checksum(other, "sha256")
+
+        res += '  <data type="other">\n'
+        res += '    <checksum type="sha256">%s</checksum>\n' % other_gz_sha256
+        res += '    <open-checksum type="sha256">%s</open-checksum>\n' % other_sha256
+        res += '    <location href="%s"/>\n' % other_name
+        res += '    <timestamp>%s</timestamp>\n' % int(nowtimestamp)
+        res += '    <size>%s</size>\n' % len(other_gz)
+        res += '    <open-size>%s</open-size>\n' % len(other)
+        res += '  </data>\n'
 
     res += '  <data type="primary">\n'
     res += '    <checksum type="sha256">%s</checksum>\n' % primary_gz_sha256
@@ -868,12 +885,12 @@ def update_repo(storage, sign, tempdir, force=False):
     primary_gz = gzip_bytes(primary_str.encode('utf-8'))
 
     repomd_str = generate_repomd(filelists_str, filelists_gz,
-                                 primary_str, primary_gz, revision)
+                                 primary_str, primary_gz, revision, storage)
 
     filelists_gz_sha256 = bytes_checksum(filelists_gz, 'sha256')
     primary_gz_sha256 = bytes_checksum(primary_gz, 'sha256')
-    filelists_name = 'repodata/%s-filelists.xml.gz' % filelists_gz_sha256
-    primary_name = 'repodata/%s-primary.xml.gz' % primary_gz_sha256
+    filelists_name = 'repodata/filelists.xml.gz'
+    primary_name = 'repodata/primary.xml.gz'
 
     storage.write_file(filelists_name, filelists_gz)
     storage.write_file(primary_name, primary_gz)
