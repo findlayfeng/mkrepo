@@ -318,8 +318,8 @@ def update_repo(storage, sign, tempdir, force=False):
         release.parse_string(storage.read_file('dists/%s/Release' %
             dist).decode('utf-8'))
 
-        components = release['Components'].split(' ')
-        architectures = release['Architectures'].split(' ')
+        components = release['Components'].split(' ') if release['Components'] else []
+        architectures = release['Architectures'].split(' ') if release['Architectures'] else []
 
         for component in components:
             for arch in architectures:
